@@ -266,13 +266,17 @@ int fiq_exc() {
 void spin(uint32_t usec)
 {
     disable_interrupts();
-    uint64_t eta_wen = get_ticks() + (24*usec);
-    enable_interrupts();
+    uint64_t eta_now = get_ticks();
+    uint64_t eta_wen = eta_now + (24*usec);
 	while (1) {
+        asm volatile("isb");
         uint32_t curtime = get_ticks();
+        if (eta_now > curtime)
+            break;
 		if (curtime > eta_wen)
 			break;
     }
+    enable_interrupts();
 }
 void usleep(uint32_t usec)
 {
@@ -386,11 +390,13 @@ cache_invalidate(void *address, size_t size) {
 	uint64_t cache_line_size = 64;
 	uint64_t start = ((uintptr_t) address) & ~(cache_line_size - 1);
 	uint64_t end = ((uintptr_t) address + size + cache_line_size - 1) & ~(cache_line_size - 1);
+	asm volatile("isb");
 	asm volatile("dsb sy");
 	for (uint64_t addr = start; addr < end; addr += cache_line_size) {
 		asm volatile("dc ivac, %0" : : "r"(addr));
 	}
 	asm volatile("dsb sy");
+	asm volatile("isb");
 }
 
 void
@@ -398,11 +404,13 @@ cache_clean_and_invalidate(void *address, size_t size) {
 	uint64_t cache_line_size = 64;
 	uint64_t start = ((uintptr_t) address) & ~(cache_line_size - 1);
 	uint64_t end = ((uintptr_t) address + size + cache_line_size - 1) & ~(cache_line_size - 1);
+	asm volatile("isb");
 	asm volatile("dsb sy");
 	for (uint64_t addr = start; addr < end; addr += cache_line_size) {
 		asm volatile("dc civac, %0" : : "r"(addr));
 	}
 	asm volatile("dsb sy");
+	asm volatile("isb");
 }
 
 
@@ -411,12 +419,39 @@ cache_clean(void *address, size_t size) { // invalidates too, because Apple
 	uint64_t cache_line_size = 64;
 	uint64_t start = ((uintptr_t) address) & ~(cache_line_size - 1);
 	uint64_t end = ((uintptr_t) address + size + cache_line_size - 1) & ~(cache_line_size - 1);
+	asm volatile("isb");
 	asm volatile("dsb sy");
 	for (uint64_t addr = start; addr < end; addr += cache_line_size) {
 		asm volatile("dc civac, %0" : : "r"(addr));
 	}
 	asm volatile("dsb sy");
+	asm volatile("isb");
 }
+
+uint64_t vatophys(uint64_t kvaddr) {
+	uint64_t par_el1;
+	disable_interrupts();
+    if (get_el() == 1) {
+    	asm volatile("at s1e1r, %0" : : "r"(kvaddr));
+    	asm volatile("isb");
+    	asm volatile("mrs %0, PAR_EL1" : "=r"(par_el1));
+    } else {
+    	asm volatile("at S1E3R, %0" : : "r"(kvaddr));
+    	asm volatile("isb");
+    	asm volatile("mrs %0, PAR_EL1" : "=r"(par_el1));
+    }
+	enable_interrupts();
+	if (par_el1 & 0x1) {
+		return -1;
+	}
+    par_el1 &= 0xFFFFFFFFFFFF;
+    if (is_16k()) {
+        return (kvaddr & 0x3FFF) | (par_el1 & (~0x3FFF));
+    } else {
+        return (kvaddr & 0xFFF) | (par_el1 & (~0xFFF));
+    }
+}
+
 
 OBFUSCATE_C_FUNC(void lowlevel_setup(uint64_t phys_off, uint64_t phys_size))
 {

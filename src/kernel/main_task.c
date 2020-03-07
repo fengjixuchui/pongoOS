@@ -107,5 +107,6 @@ void pongo_main_task() {
         }
     }
     iprintf("Running on: %s\n", soc_name);
+    
     shell_main();
 }
