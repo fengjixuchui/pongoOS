@@ -1,15 +1,29 @@
-
 //
-// @bazad's synopsysOTG driver
+// Project: KTRW Synopsys OTG USB controller driver
+// Authors:  Brandon Azad <bazad@google.com>
+// and qwertyuiop, Siguza, et al from the checkra1n team 
+//
 // Copyright 2019 Google LLC
-// Copyright 2019 checkra1n team
+// Copyright 2019-2020 checkra1n team
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 
-#define LL_KTRW_INTERNAL 1
 #include <pongo.h>
 uint64_t gSynopsysBase;
 uint64_t gSynopsysOTGBase;
 uint64_t gSynopsysComplexBase;
+uint32_t gSynopsysCoreVersion;
 struct _reg { uint32_t off; };
 #define SYNOPSYS_OTG_REGISTER(_x)	((struct _reg) { _x })
 #include "synopsys_otg_regs.h"
@@ -19,19 +33,25 @@ static uint32_t reg_read(struct _reg reg) {
 }
 
 static void reg_write(struct _reg reg, uint32_t val) {
+#if defined(USB_DEBUG_LEVEL) && USB_DEBUG_LEVEL >= 2
 	if (reg.off != rGINTSTS.off) {
 		USB_DEBUG(USB_DEBUG_REG, "wr%03x %x", reg.off, val);
 	}
+#endif
 	*(volatile uint32_t *)(gSynopsysBase + reg.off) = val;
 }
 
 static void reg_and(struct _reg reg, uint32_t val) {
+#if defined(USB_DEBUG_LEVEL) && USB_DEBUG_LEVEL >= 2
 	USB_DEBUG(USB_DEBUG_REG, "an%03x %x", reg.off, val);
+#endif
 	*(volatile uint32_t *)(gSynopsysBase + reg.off) &= val;
 }
 
 static void reg_or(struct _reg reg, uint32_t val) {
+#if defined(USB_DEBUG_LEVEL) && USB_DEBUG_LEVEL >= 2
 	USB_DEBUG(USB_DEBUG_REG, "or%03x %x", reg.off, val);
+#endif
     *(volatile uint32_t *)(gSynopsysBase + reg.off) |= val;
 }
 
@@ -40,7 +60,7 @@ static void USB_DEBUG_PRINT_REGISTERS();
 
 static void USB_DEBUG_PRINT_REGISTERS() {
     disable_interrupts();
-#define USB_DEBUG_REG_VALUE(reg) iprintf(#reg " = 0x%x\n", reg_read(reg));
+#define USB_DEBUG_REG_VALUE(reg) USB_DEBUG(USB_DEBUG_STANDARD, #reg " = 0x%x\n", reg_read(reg));
 	USB_DEBUG_REG_VALUE(rGOTGCTL);
 	USB_DEBUG_REG_VALUE(rGOTGINT);
 	USB_DEBUG_REG_VALUE(rGAHBCFG);
@@ -405,7 +425,7 @@ ep0_standard_request(struct setup_packet *setup) {
 
 static bool
 ep0_setup_stage(struct setup_packet *setup) {
-	USB_DEBUG(USB_DEBUG_STAGE, "[%llu] SETUP {%02x,%02x,%04x,%04x,%04x}",
+	USB_DEBUG(USB_DEBUG_STAGE, "[%u] SETUP {%02x,%02x,%04x,%04x,%04x}",
 			USB_DEBUG_ITERATION, setup->bmRequestType, setup->bRequest,
 			setup->wValue, setup->wIndex, setup->wLength);
 	uint8_t type = setup->bmRequestType & 0x60;
@@ -1046,7 +1066,7 @@ ep_out_recv_data_done(struct endpoint_state *ep) {
 // The maximum number of iterations we'll loop for when waiting for a USB register write to take
 // effect.
 
-static void
+__attribute__((used)) static void
 ep_in_activate(struct endpoint_state *ep, uint8_t n, uint8_t type, uint16_t max_packet_size,
 		uint8_t txfifo) {
 	USB_DEBUG(USB_DEBUG_FUNC, "EP%u IN activate", n);
@@ -1068,7 +1088,7 @@ ep_in_activate(struct endpoint_state *ep, uint8_t n, uint8_t type, uint16_t max_
     // Start receiving interrupts.
     reg_or(rDAINTMSK, (1 << n));
 }
-static void
+__attribute__((used))static void
 ep_out_activate(struct endpoint_state *ep, uint8_t n, uint8_t type, uint16_t max_packet_size) {
     USB_DEBUG(USB_DEBUG_FUNC, "EP%u OUT activate", n);
     ep->n = n;
@@ -1090,7 +1110,7 @@ ep_out_activate(struct endpoint_state *ep, uint8_t n, uint8_t type, uint16_t max
     reg_or(rDAINTMSK, (1 << (n + 16)));
 }
 
-static void
+__attribute__((used))static void
 ep_in_abort(struct endpoint_state *ep) {
 	USB_DEBUG(USB_DEBUG_FUNC, "EP%u IN abort", ep->n);
 	ep->transfer_size = 0;
@@ -1107,7 +1127,7 @@ ep_in_abort(struct endpoint_state *ep) {
 	reg_write(rDIEPINT(ep->n), reg_read(rDIEPINT(ep->n)));
 }
 
-static void
+__attribute__((used))static void
 ep_out_abort(struct endpoint_state *ep) {
     USB_DEBUG(USB_DEBUG_FUNC, "EP%u OUT abort", ep->n);
     ep->transfer_size = 0;
@@ -1133,7 +1153,7 @@ ep_out_abort(struct endpoint_state *ep) {
     reg_write(rDOEPINT(ep->n), reg_read(rDOEPINT(ep->n)));
 }
 
-static void
+__attribute__((used)) static void
 ep_stall(struct endpoint_state *ep) {
     USB_DEBUG(USB_DEBUG_FUNC, "EP%u %s stall", ep->n, (ep->dir_in ? "IN" : "OUT"));
     if (ep->dir_in) {
@@ -1143,14 +1163,14 @@ ep_stall(struct endpoint_state *ep) {
     }
 }
 
-static void
+__attribute__((used)) static void
 usb_set_address(uint8_t address) {
 	USB_DEBUG(USB_DEBUG_FUNC, "Set address %u", address);
 	uint32_t dcfg = reg_read(rDCFG);
 	dcfg = (dcfg & ~0x7f0) | (((uint32_t) address << 4) & 0x7f0);
 	reg_write(rDCFG, dcfg);
 }
-static void
+__attribute__((used)) static void
 usb_reset() {
     USB_DEBUG(USB_DEBUG_FUNC, "Reset");
     ep_in_abort(&ep0_in);
@@ -1283,7 +1303,7 @@ usb_in_transfer(uint8_t ep_addr, const void *data, uint32_t size, void (*callbac
 void
 usb_out_transfer(uint8_t ep_addr, void *data, uint32_t size,
         void (*callback)(void *, uint32_t, uint32_t)) {
-    USB_DEBUG(USB_DEBUG_APP, "%s(%zu)", __func__, size);
+    USB_DEBUG(USB_DEBUG_APP, "%s(%u)", __func__, size);
     struct endpoint_state *ep = NULL;
     struct transfer_state *state = NULL;
     lookup_endpoint(ep_addr, 0, &ep, &state);
@@ -1300,7 +1320,7 @@ usb_out_transfer(uint8_t ep_addr, void *data, uint32_t size,
 void
 usb_out_transfer_dma(uint8_t ep_addr, void *data, uint32_t dma, uint32_t size,
         void (*callback)(void *, uint32_t, uint32_t)) {
-    USB_DEBUG(USB_DEBUG_APP, "%s(%zu)", __func__, size);
+    USB_DEBUG(USB_DEBUG_APP, "%s(%u)", __func__, size);
     struct endpoint_state *ep = NULL;
     struct transfer_state *state = NULL;
     lookup_endpoint(ep_addr, 0, &ep, &state);
@@ -1437,10 +1457,15 @@ static void
 ep0_out_interrupt() {
 	uint32_t doepint = reg_read(rDOEPINT(0));
 	reg_write(rDOEPINT(0), doepint);
-	if (doepint & 0x8000) {
+    bool is_setup = !!(doepint & 0x8008);
+	bool is_data  = !is_setup && !!(doepint & 0x1);
+	if (is_setup) {
 		// We've received a setup packet.
+
+        spin(2); // this is required because this interrupt is asserted *before* the DMA transfer is complete on some devices.. ugh
         struct setup_packet *setup = ep_out_recv_setup_done(&ep0_out);
-		ep0.setup_packet = *setup;
+        ep0.setup_packet = *setup;
+
 		ep0.setup_packet_pending = true;
 		ep0.data_out_stage_callback = NULL;
 		ep0.status_out_stage_callback = NULL;
@@ -1448,12 +1473,13 @@ ep0_out_interrupt() {
 	if ((doepint & 0x8) && ep0.setup_packet_pending) {
 		// The SETUP stage is done, so process the queued setup packet.
 		ep0.setup_packet_pending = false;
-		bool success = false;
+
+        bool success = false;
 		// Only begin processing the setup packet if we will have enough room for the whole
 		// transfer. We could break down the layering to allow even bigger contiguous
 		// transfers, but this works fine for me.
 		if (ep0.setup_packet.wLength <= DMA_BUFFER_SIZE) {
-			
+
 			success = ep0_setup_stage(&ep0.setup_packet);
 		}
 		if (success) {
@@ -1462,7 +1488,7 @@ ep0_out_interrupt() {
 				// This is an IN control transfer. There will be a DATA IN stage,
 				// so we don't expect to receive the STATUS OUT stage yet. The DATA
 				// IN was initialized by ep0_setup_stage().
-#if DEBUG_USB
+#if defined(USB_DEBUG_LEVEL) && USB_DEBUG_LEVEL >= 1
 				// Check to make sure that ep0_begin_data_in_stage() was called.
 				if (ep0_in.transfer_size == ep0_in.transferred) {
 					USB_DEBUG(USB_DEBUG_FATAL,
@@ -1478,7 +1504,7 @@ ep0_out_interrupt() {
 					// set it ep0_setup_stage() by a call to
 					// ep0_begin_data_out_stage() (which internally calls
                     // ep_out_recv_data(&ep0_out)).
-#if DEBUG_USB
+#if defined(USB_DEBUG_LEVEL) && USB_DEBUG_LEVEL >= 1
 					if (ep0_out.in_flight != RECV_DATA) {
 						USB_DEBUG(USB_DEBUG_FATAL, "ep0_begin_data_out_"
 								"stage() not called!");
@@ -1510,62 +1536,64 @@ ep0_out_interrupt() {
 				}
 			}
 		}
-	} else if ((doepint & 0x8021) == 0x21) {
-		// After an OUT control transfer with data completes, we get a zero-length OUT DATA
-		// with DOEPINT 0x21 (stsphsercvd | xfercompl). This is expected, don't stall.
-		USB_DEBUG(USB_DEBUG_STAGE, "STATUS IN done");
-	} else if ((doepint & 0x8021) == 0x1) {
-		// This packet is part of the DATA OUT stage or STATUS OUT stage.
-		bool done = ep_out_recv_data_done(&ep0_out);
-		if (done) {
-			// ep0_out_recv_data_done() has reset the receive state, so the next call
-			// to ep0_out_recv() expects a setup packet. But before we start receiving
-			// more data, process the data we did receive.
-			if (ep0.setup_packet.bmRequestType & 0x80) {
-				// This is an IN control transfer, so this packet is part of the
-				// STATUS OUT stage.
-				if (ep0_out.transferred != 0
-						|| ep0_out.transfer_size != 0) {
-					// STATUS OUT failed.
-                    ep_stall(&ep0_out);
+	} else if(is_data) {
+		if ((doepint & 0x20) == 0x20) {
+			// After an OUT control transfer with data completes, we get a zero-length OUT DATA
+			// with DOEPINT 0x21 (stsphsercvd | xfercompl). This is expected, don't stall.
+			USB_DEBUG(USB_DEBUG_STAGE, "STATUS IN done");
+		} else {
+			// This packet is part of the DATA OUT stage or STATUS OUT stage.
+			bool done = ep_out_recv_data_done(&ep0_out);
+			if (done) {
+				// ep0_out_recv_data_done() has reset the receive state, so the next call
+				// to ep0_out_recv() expects a setup packet. But before we start receiving
+				// more data, process the data we did receive.
+				if (ep0.setup_packet.bmRequestType & 0x80) {
+					// This is an IN control transfer, so this packet is part of the
+					// STATUS OUT stage.
+					if (ep0_out.transferred != 0
+							|| ep0_out.transfer_size != 0) {
+						// STATUS OUT failed.
+	                    ep_stall(&ep0_out);
+					} else {
+						// STATUS OUT completed successfully.
+						USB_DEBUG(USB_DEBUG_STAGE, "STATUS OUT done");
+						if (ep0.status_out_stage_callback != NULL) {
+							ep0.status_out_stage_callback();
+							ep0.status_out_stage_callback = NULL;
+						}
+					}
 				} else {
-					// STATUS OUT completed successfully.
-					USB_DEBUG(USB_DEBUG_STAGE, "STATUS OUT done");
-					if (ep0.status_out_stage_callback != NULL) {
-						ep0.status_out_stage_callback();
-						ep0.status_out_stage_callback = NULL;
+					// This is an OUT control transfer, so this packet is part of the
+					// DATA OUT stage.
+					if (ep0_out.transferred != ep0_out.transfer_size) {
+						// The wrong amount of data was transferred.
+						ep_stall(&ep0_out);
+					} else {
+						// We got all the data. Give it to the layer above us to
+						// process the DATA OUT stage.
+						if (ep0.data_out_stage_callback == NULL) {
+							BUG(0x6e6f20646f206362);	// 'no do cb'
+						}
+						bool success = ep0.data_out_stage_callback(
+								ep0_out.transfer_data,
+								ep0_out.transfer_size);
+						ep0.data_out_stage_callback = NULL;
+						if (success) {
+							// The DATA OUT stage was successful. Move to the
+							// STATUS IN stage.
+							USB_DEBUG(USB_DEBUG_STAGE, "STATUS IN");
+							ep_in_send_data(&ep0_in, NULL, 0);
+						} else {
+							// The DATA OUT stage failed.
+							ep_stall(&ep0_in);
+						}
 					}
 				}
 			} else {
-				// This is an OUT control transfer, so this packet is part of the
-				// DATA OUT stage.
-				if (ep0_out.transferred != ep0_out.transfer_size) {
-					// The wrong amount of data was transferred.
-					ep_stall(&ep0_out);
-				} else {
-					// We got all the data. Give it to the layer above us to
-					// process the DATA OUT stage.
-					if (ep0.data_out_stage_callback == NULL) {
-						BUG(0x6e6f20646f206362);	// 'no do cb'
-					}
-					bool success = ep0.data_out_stage_callback(
-							ep0_out.transfer_data,
-							ep0_out.transfer_size);
-					ep0.data_out_stage_callback = NULL;
-					if (success) {
-						// The DATA OUT stage was successful. Move to the
-						// STATUS IN stage.
-						USB_DEBUG(USB_DEBUG_STAGE, "STATUS IN");
-						ep_in_send_data(&ep0_in, NULL, 0);
-					} else {
-						// The DATA OUT stage failed.
-						ep_stall(&ep0_in);
-					}
-				}
+				// The DATA OUT transaction is not done. The call to ep0_out_recv() below
+				// will continue receiving OUT DATA.
 			}
-		} else {
-			// The DATA OUT transaction is not done. The call to ep0_out_recv() below
-			// will continue receiving OUT DATA.
 		}
 	}
 	if (doepint & 0x4) {
@@ -1642,7 +1670,7 @@ static void
 usb_ep_interrupt() {
 	uint32_t daint = reg_read(rDAINT);
 	if (daint != 0) {
-		USB_DEBUG(USB_DEBUG_INTR, "[%llu] DAINT %x", USB_DEBUG_ITERATION, daint);
+		USB_DEBUG(USB_DEBUG_INTR, "[%u] DAINT %x", USB_DEBUG_ITERATION, daint);
 	}
     if (daint & (1 << (0))) {
         ep0_in_interrupt();
@@ -1713,17 +1741,17 @@ void usb_main() {
 static uint64_t reg1=0, reg2=0, reg3=0;
 
 void usb_bringup() {
-    uint64_t clockGateBase = dt_get_u32_prop("pmgr", "reg") + gIOBase;
-    clock_gate(clockGateBase + reg1, 0);
-    clock_gate(clockGateBase + reg2, 0);
-    clock_gate(clockGateBase + reg3, 0);
+    clock_gate(reg1, 0);
+    clock_gate(reg2, 0);
+    clock_gate(reg3, 0);
     spin(1000);
-    clock_gate(clockGateBase + reg1, 1);
-    clock_gate(clockGateBase + reg2, 1);
-    clock_gate(clockGateBase + reg3, 1);
-    extern int socnum;
+    clock_gate(reg1, 1);
+    clock_gate(reg2, 1);
+    clock_gate(reg3, 1);
+    // t8011 is really just cursed...
     if (socnum == 0x8011) {
-        *(volatile uint32_t*)(0x20C000024) = 0x3000088;
+        *(volatile uint32_t*)(gSynopsysComplexBase + 0x00) = 1;
+        *(volatile uint32_t*)(gSynopsysComplexBase + 0x24) = 0x3000088;
     } else {
         *(volatile uint32_t*)(gSynopsysComplexBase + 0x1c) = 0x108;
         *(volatile uint32_t*)(gSynopsysComplexBase + 0x5c) = 0x108;
@@ -1741,64 +1769,54 @@ void usb_bringup() {
 }
 
 void usb_init() {
-    gSynopsysOTGBase = dt_get_u32_prop("otgphyctrl", "reg");
+    gSynopsysOTGBase = 0;
+    uint32_t sz = 0;
+    uint64_t *reg = dt_get_prop("otgphyctrl", "reg", &sz);
+    if(reg)
+    {
+        sz /= 0x10;
+        for(uint32_t i = 0; i < sz; ++i)
+        {
+            if(reg[2*i + 1] == 0x20)
+            {
+                gSynopsysOTGBase = reg[2*i];
+                break;
+            }
+        }
+    }
+    if(!gSynopsysOTGBase)
+    {
+        panic("Failed to find gSynopsysOTGBase");
+    }
     gSynopsysOTGBase += gIOBase;
-    gSynopsysComplexBase = dt_get_u32_prop("usb-complex", "reg");
-    gSynopsysComplexBase += gIOBase;
-
-    extern int socnum;
-    switch (socnum) {
-        case 0x8010:
-        case 0x8012:
-            reg1 = 0x80268;
-            reg2 = 0x80270;
-            reg3 = 0x80290;
-        break;
-        case 0x8011:
-            reg1 = 0x80288;
-            reg2 = 0x80290;
-            reg3 = 0x802a0;
-        break;
-        case 0x8015:
-            reg1 = 0x80270;
-            reg2 = 0x80278;
-            reg3 = 0x80270;
-            if (gSynopsysComplexBase == gSynopsysOTGBase) 
-                gSynopsysOTGBase += 0x60;
-        break;
-        case 0x8000:
-        case 0x8003:
-            reg1 = 0x80250;
-            reg2 = 0x80258;
-            reg3 = 0x80290;
-        break;
-        case 0x8001:
-            reg1 = 0x80278;
-            reg2 = 0x80280;
-            reg3 = 0x802B8;
-        break;
-        case 0x7000:
-        case 0x7001:
-            reg1 = 0x20248;
-            reg2 = 0x20250;
-            reg3 = 0x20288;
-        break;
-        case 0x8960:
-            reg1 = 0x20158;
-            reg2 = 0x20160;
-            reg3 = 0x20188;
-        break;
-        default:
-        iprintf("USB: unsupported platform: %x\nblame qwerty!\n", socnum);
-        break;
+    gSynopsysComplexBase = gIOBase + dt_get_u32_prop("usb-complex", "reg");
+    // Can't trust "usb-device" dtre entry, because that can be USB3 and we want USB2
+    gSynopsysBase = (gSynopsysOTGBase & ~0xfffULL) + 0x00100000;
+    uint32_t otg_irq;
+    
+    struct usb_regs regs;
+    size_t plsz = sizeof(struct usb_regs);
+    if (!hal_get_platform_value("usb_regs", &regs, &plsz)) {
+        panic("synopsys_otg: need usb_regs platform value!");
     }
     
+    reg1 = gIOBase + regs.reg1;
+    reg2 = gIOBase + regs.reg2;
+    reg3 = gIOBase + regs.reg3;
+    otg_irq = regs.otg_irq;
+    
+    uint64_t dma_page_v = (uint64_t) alloc_contig(4 * DMA_BUFFER_SIZE);
+    uint64_t dma_page_p = vatophys_static((void*)dma_page_v);
+    bzero((void*)dma_page_v,4 * DMA_BUFFER_SIZE);
+    cache_clean_and_invalidate((void*)dma_page_v, 4 * DMA_BUFFER_SIZE);
+
     disable_interrupts();
     usb_irq_mode = 1;
     usb_usbtask_handoff_mode = 0;
-    gSynopsysBase = dt_get_u32_prop("usb-device", "reg");
-    gSynopsysBase += (gSynopsysOTGBase & (~0xfff));
     usb_bringup();
+
+    gSynopsysCoreVersion = reg_read(rGSNPSID) & 0xffff;
+    USB_DEBUG(USB_DEBUG_STANDARD, "gSynopsysCoreVersion: 0x%x", gSynopsysCoreVersion);
 
     reg_or(rDCTL, 0x2);
     reg_write(rGAHBCFG, 0x2e | usb_irq_mode);
@@ -1816,11 +1834,6 @@ void usb_init() {
     ep_out_activate(&ep0_out, 0, 0, EP0_MAX_PACKET_SIZE);
     ep_in_activate(&ep0_in, 0, 0, EP0_MAX_PACKET_SIZE, 0);
 
-    uint64_t dma_page_v = (uint64_t) alloc_contig(4 * DMA_BUFFER_SIZE);
-    uint64_t dma_page_p = vatophys(dma_page_v);
-    bzero((void*)dma_page_v,4 * DMA_BUFFER_SIZE);
-    cache_clean_and_invalidate((void*)dma_page_v, 4 * DMA_BUFFER_SIZE);
-
     ep0_out.default_xfer_dma_data = (void *)   (dma_page_v + 0 * DMA_BUFFER_SIZE);
     ep0_out.default_xfer_dma_phys = (uint32_t) (dma_page_p + 0 * DMA_BUFFER_SIZE);
     ep0_out.default_xfer_dma_size = DMA_BUFFER_SIZE;
@@ -1834,9 +1847,7 @@ void usb_init() {
     ep2_out.default_xfer_dma_phys = (uint32_t) (dma_page_p + 3 * DMA_BUFFER_SIZE);
     ep2_out.default_xfer_dma_size = DMA_BUFFER_SIZE;
 
-
     *(volatile uint32_t*)(gSynopsysOTGBase + 0x4) |= 2;
-    command_register("synopsys", "prints a synopsysotg register dump", USB_DEBUG_PRINT_REGISTERS);
 
     if (usb_usbtask_handoff_mode) {
         usbtask_niq = alloc_contig(sizeof(struct task));
@@ -1845,21 +1856,15 @@ void usb_init() {
     }
     usb_irq = 0;
     if (usb_irq_mode) {
-        usb_irq = dt_get_u32_prop("usb-device", "interrupts");
+        usb_irq = otg_irq;
         task_register_preempt_irq(&usb_task, usb_main, usb_irq);
     }
     else task_register(&usb_task, usb_main);
     enable_interrupts();
-
+    command_register("synopsys", "prints a synopsysotg register dump", USB_DEBUG_PRINT_REGISTERS);
 }
 void usb_teardown() {
     if (!gSynopsysOTGBase) return;
-    gSynopsysOTGBase = 0;
-    uint64_t clockGateBase = dt_get_u32_prop("pmgr", "reg") + gIOBase;
-    *(volatile uint32_t*)(gSynopsysOTGBase + 0x4) &= ~2;
-    clock_gate(clockGateBase + reg3, 0);
-    clock_gate(clockGateBase + reg2, 0);
-    clock_gate(clockGateBase + reg1, 0);
+    reg_write(rGAHBCFG, 0x2e);
+    reg_or(rDCTL, 0x2);
 }
-
-

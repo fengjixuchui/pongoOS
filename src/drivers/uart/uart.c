@@ -1,26 +1,29 @@
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-// 
-// The above copyright notice and this permission notice shall be included in all
-// copies or substantial portions of the Software.
-// 
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-// SOFTWARE.
-// 
-//
-//  Copyright (c) 2019-2020 checkra1n team
-//  This file is part of pongoOS.
-//
-#define LL_KTRW_INTERNAL 1
+/* 
+ * pongoOS - https://checkra.in
+ * 
+ * Copyright (C) 2019-2020 checkra1n team
+ *
+ * This file is part of pongoOS.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ * 
+ */
 #define UART_INTERNAL 1
 #include <pongo.h>
 
@@ -61,30 +64,33 @@ extern void queue_rx_char(char inch);
 void uart_main() {
     while(1) {
         disable_interrupts();
-        volatile uint32_t utrst = rUTRSTAT0;
+        uint32_t utrst = rUTRSTAT0;
         rUTRSTAT0 = utrst;
         if (utrst & 0x40) {
-            volatile uint32_t noop = rURXH0;
+            (void)rURXH0; // force read
         } else
         if (utrst & 1) {
             int rxh0 = rURXH0;
             if (!uart_should_drop_rx) {
                 char cmd_l = rxh0;
                 enable_interrupts();
-                queue_rx_char(cmd_l);
+                queue_rx_char(cmd_l); // may take stdin lock
                 disable_interrupts();
             }
         }
-        volatile uint32_t uerst = rUERSTAT0;
+        uint32_t uerst = rUERSTAT0;
         rUERSTAT0 = uerst;
-        uart_update_tx_irq();
         enable_interrupts();
         task_exit_irq();
     }
 }
-struct task uart_task = {.name = "uart"};
+
+static inline void put_serial_modifier(const char* str) {
+    while (*str) serial_putc(*str++);
+}
 
 uint64_t gUartBase;
+extern uint32_t gLogoBitmap[32];
 void serial_early_init() {
     disable_interrupts();
     gUartBase = dt_get_u32_prop("uart0", "reg");
@@ -93,7 +99,35 @@ void serial_early_init() {
     rUCON0 = 0x405;
     rUFCON0 = 0;
     rUMCON0 = 0;
+    char reorder[6] = {'1','3','2','6','4','5'};
+    char modifier[] = {'\x1b', '[', '4', '1', ';', '1', 'm', 0};
+    int cnt = 0;
+    for (int y=0; y < 32; y++) {
+        uint32_t b = gLogoBitmap[y];
+        for (int x=0; x < 32; x++) {
+            if (b & (1 << (x))) {
+                modifier[3] = reorder[((cnt) % 6)];
+                put_serial_modifier(modifier);
+            }
+            serial_putc(' ');
+            serial_putc(' ');
+            if (b & (1 << (x))) {
+                put_serial_modifier("\x1b[0m");
+            }
+            cnt = (x+1) + y;
+        }
+        serial_putc('\n');
+    }
     enable_interrupts();
+}
+
+void serial_pinmux_init() {
+    // Pinmux debug UART on ATV4K
+    // This will also pinmux uart0 on iPad Pro 2G
+    if((strcmp(soc_name, "t8011") == 0)) {
+        rT8011TX = UART_TX_MUX;
+        rT8011RX = UART_RX_MUX;
+    }
 }
 
 uint16_t uart_irq;
@@ -105,10 +139,12 @@ void serial_enable_rx() {
 }
 char uart_irq_driven = 0;
 void serial_init() {
+    struct task* irq_task = task_create_extended("uart", uart_main, TASK_IRQ_HANDLER|TASK_PREEMPT, 0);
+
     disable_interrupts();
     uart_irq = dt_get_u32_prop("uart0", "interrupts");
     serial_disable_rx();
-    task_register_preempt_irq(&uart_task, uart_main, uart_irq);
+    task_bind_to_irq(irq_task, uart_irq);
     uart_irq_driven = 0;
     rUCON0 = 0x5885;
     enable_interrupts();

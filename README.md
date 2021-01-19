@@ -1,44 +1,59 @@
-pongoOS
-=======
-![Docker](https://github.com/checkra1n/pongoOS/workflows/Docker/badge.svg)
-![CI](https://github.com/checkra1n/pongoOS/workflows/CI/badge.svg)
+# pongoOS
 
-An experimental pre-boot execution environment for Apple boards built on top of checkra1n.
+A pre-boot execution environment for Apple boards built on top of checkra1n.
 
-Building on macOS
------------
-* Install Docker for macOS
-* Either build or pull the builder image
-  + `docker build --tag checkra1n/build-pongo .`
-  + `docker pull docker.pkg.github.com/checkra1n/pongoos/build-pongo:latest`
-* Perform a build inside the container with `./build.sh`
+## Building on macOS
 
-Building on Linux
------------
+- Install Xcode + command-line utilities
+- Run `make all`
 
-Either use the Arm reference toolchain from arm.com (aarch64-none-elf), or:
+## Building on Linux
 
-    # binutils
-    ./configure --prefix="$PREFIX" --target=aarch64-none-elf --program-prefix=aarch64-none-elf- --build=x86_64-apple-darwin19.3.0 --with-gmp="$PREFIX" --with-mpfr="$PREFIX" --with-mpc="$PREFIX" --enable-lto --enable-plugins --disable-gdb --disable-sim --disable-libdecnumber --with-newlib
-    # GMP
-    ./configure --prefix="$PREFIX" --build=x86_64-apple-darwin19.3.0
-    # MPFR
-    ./configure --prefix="$PREFIX" --build=x86_64-apple-darwin19.3.0 --with-gmp="$PREFIX"
-    # MPC
-    ./configure --prefix="$PREFIX" --build=x86_64-apple-darwin19.3.0 --with-gmp="$PREFIX" --with-mpfr="$PREFIX"
-    # gcc
-    ../gcc-arm-src-snapshot-9.2-2019.12/configure --prefix="$PREFIX" --build=x86_64-apple-darwin19.3.0 --target=aarch64-none-elf --program-prefix=aarch64-none-elf- --with-gmp="$PREFIX" --with-mpfr="$PREFIX" --with-mpc="$PREFIX" --enable-lto --disable-libstdcxx --disable-libquadmath --disable-libquadmath-support --disable-libada --disable-libssp --disable-liboffloadmic --enable-languages=c,c++,lto --with-newlib
+- Install clang (if in doubt, from [apt.llvm.org](https://apt.llvm.org))
+- Install `ld64` and cctools' `strip`.
+  - On Debian/Ubuntu these can be installed from the checkra1n repo:
+    ```
+    echo 'deb https://assets.checkra.in/debian /' | sudo tee /etc/apt/sources.list.d/checkra1n.list
+    sudo apt-key adv --fetch-keys https://assets.checkra.in/debian/archive.key
+    sudo apt-get update
+    sudo apt-get install -y ld64 cctools-strip
+    ```
+  - On other Linux flavours you'll likely have to build them yourself. Maybe [this repo](https://github.com/Siguza/ld64) will help you.
+- Run `make all`
 
-Contributions
--------------
+If `clang`, `ld64` or `cctools-strip` don't have their default names/paths, you'll want to change their invocation. For reference, the default variables are equivalent to:
 
-By submitting a pull request, you certify that this contribution is coming from you and no one else. If you want to import third-party code, that shall be noted prominently for us to evaluate it appropriately.
+    EMBEDDED_CC=clang EMBEDDED_LDFLAGS=-fuse-ld=/usr/bin/ld64 STRIP=cctools-strip make all
 
-Module
-------
-You can build the module at example/ with an iOS cross-compiler on Linux or a Mac. Refer to scripts/ to see how to load modules.
+## Build artifacts
 
-Kernel patchfinder
-------------------
+The Makefile will create four binaries in `build/`:
 
-Note that the checkra1n patchfinder is not currently open-source. However, the KPF JIT that will ship on checkra1n 0.10.0 onwards is part of this repository. That means that pongoOS builds from this repository will always boot to the shell by default instead of XNU.
+- `Pongo` - A Mach-O of the main PongoOS
+- `Pongo.bin` - Same as the above, but as a bare metal binary that can be jumped to
+- `checkra1n-kpf-pongo` - The checkra1n kernel patchfinder, as a Pongo module (Mach-O/kext)
+- `PongoConsolidated.bin` - PongoOS and the KPF merged into a single binary
+
+## Usage
+
+    checkra1n -k Pongo.bin                  # Boots to Pongo shell, KPF not available
+    checkra1n -k PongoConsolidated.bin      # Auto-runs KPF and boots to XNU
+    checkra1n -k PongoConsolidated.bin -p   # Loads KPF, but boots to Pongo shell
+
+## Contributions
+
+By submitting a pull request, you agree to license your contributions under the [MIT License](https://github.com/checkra1n/pongoOS/blob/master/LICENSE.md) and you certify that you have the right to do so.  
+If you want to import third-party code that cannot be licensed as such, that shall be noted prominently for us to evaluate accordingly.
+
+## Structure
+
+- The core PongoOS and drivers are in `src/`.
+  - Build-time helper tools are in `tools/`.
+- The stdlib used by PongoOS (Newlib) is in `aarch64-none-darwin`.
+  - This includes a custom patch for Newlib to work with the Darwin ABI.
+- An example module exists in `example/`.
+- Scripts to communicate with the PongoOS shell are in `scripts/`.
+  - This includes `pongoterm`, an interactive shell client for macOS.
+- The checkra1n kernel patchfinder (KPF) is in `checkra1n/kpf`.
+  - This currently includes the SEP exploit, though that is to be moved into mainline PongoOS in the future.
+- A userland version of the KPF can be built from `checkra1n/kpf-test` (can only be run on arm64).

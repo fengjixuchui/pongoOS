@@ -1,26 +1,29 @@
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-// 
-// The above copyright notice and this permission notice shall be included in all
-// copies or substantial portions of the Software.
-// 
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-// SOFTWARE.
-// 
-//
-//  Copyright (c) 2019-2020 checkra1n team
-//  This file is part of pongoOS.
-//
-#define LL_KTRW_INTERNAL 1
+/* 
+ * pongoOS - https://checkra.in
+ * 
+ * Copyright (C) 2019-2020 checkra1n team
+ *
+ * This file is part of pongoOS.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ * 
+ */
 #include <pongo.h>
 
 boot_args * gBootArgs;
@@ -56,11 +59,7 @@ int pongo_fiq_handler() {
 */
 
 __attribute__((noinline)) void pongo_reinstall_vbar() {
-    if (get_el() == 1) {
-        set_vbar_el1((uint64_t)&exception_vector);
-    } else {
-        set_vbar_el3((uint64_t)&exception_vector);
-    }
+    set_vbar_el1((uint64_t)&exception_vector);
 }
 
 /*
@@ -89,8 +88,12 @@ char pongo_sched_tick() {
         goto out;
     }
     if (pongo_sched_head) {
-        struct task* tsk = pongo_sched_head;
+        struct task* volatile tsk = pongo_sched_head;
         pongo_sched_head = pongo_sched_head->next;
+        if (tsk->flags & TASK_PLEASE_DEREF) {
+            tsk->flags &= ~TASK_PLEASE_DEREF;
+            task_release(tsk);
+        } else
         if (tsk->flags & TASK_LINKED) {
             _task_switch_asserted(tsk);
             disable_interrupts();
@@ -98,10 +101,8 @@ char pongo_sched_tick() {
                 rvalue = 1;
                 preempt_ctr = 0;
             }
-        } else if (tsk->flags & TASK_HAS_CRASHED) {
-            if (tsk->crash_callback) tsk->crash_callback();
-            tsk->flags &= ~TASK_HAS_CRASHED;
         }
+        
     }
 out:
     enable_interrupts();
@@ -115,18 +116,21 @@ out:
 
 */
 
-__attribute__((noinline)) void pongo_entry_cached() {
+char soc_name[9] = {};
+uint32_t socnum = 0x0;
+void (*sep_boot_hook)(void);
+
+__attribute__((noinline)) void pongo_entry_cached()
+{
+    extern char preemption_over;
+    preemption_over = 1;
     gDeviceTree = (void*)((uint64_t)gBootArgs->deviceTreeP - gBootArgs->virtBase + gBootArgs->physBase - 0x800000000 + kCacheableView);
     gIOBase = dt_get_u64_prop_i("arm-io", "ranges", 1);
-    uint64_t max_video_addr = gBootArgs->Video.v_baseAddr + gBootArgs->Video.v_rowBytes * gBootArgs->Video.v_height;
-    uint64_t max_mem_size = max_video_addr - gBootArgs->physBase;
-    if (gBootArgs->memSize > max_mem_size) max_mem_size = gBootArgs->memSize;
-    map_full_ram(gBootArgs->physBase & 0xFFFFFFFF, max_mem_size);
 
-    extern int socnum;
+    map_full_ram(gBootArgs->physBase & 0xFFFFFFFF, gBootArgs->memSize);
+
     gDevType = dt_get_prop("arm-io", "device_type", NULL);
     size_t len = strlen(gDevType) - 3;
-    char soc_name[9] = {};
     len = len < 8 ? len : 8;
     strncpy(soc_name, gDevType, len);
     if  (strcmp(soc_name, "s5l8960x") == 0) socnum = 0x8960;
@@ -156,29 +160,47 @@ __attribute__((noinline)) void pongo_entry_cached() {
     */
 
     pongo_reinstall_vbar();
-    enable_interrupts();
+    
+    
+    extern void _task_set_current(struct task* t);
+    
+    task_alloc_fast_stacks(&sched_task);
+    
+    task_link(&sched_task);
+    _task_set_current(&sched_task);
+    // Setup VM
+    
+    vm_init();
 
     /*
         Draw logo and set up framebuffer
     */
 
     screen_init();
-
+    
     /*
         Set up main task for scheduling
     */
+    
+    extern struct vm_space kernel_vm_space;
+    task_current()->vm_space = &kernel_vm_space;
+    task_current()->cpsr = 0x205;
+    task_current()->ttbr0 = kernel_vm_space.ttbr0;
+    task_current()->ttbr1 = kernel_vm_space.ttbr1 | kernel_vm_space.asid;
+    task_current()->proc = proc_create(NULL, "kernel", PROC_NO_VM);
+    task_current()->proc->vm_space = &kernel_vm_space;
+    
     void pongo_main_task();
     task_register(&pongo_task, pongo_main_task);
     task_link(&pongo_task);
-
+    
     /*
         Set up FIQ timer
     */
 
-    extern void _task_set_current(struct task* t);
+    preemption_over = 0;
 
-    task_link(&sched_task);
-    _task_set_current(&sched_task);
+    enable_interrupts();
 
     timer_init();
     timer_rearm();
@@ -207,8 +229,10 @@ __attribute__((noinline)) void pongo_entry_cached() {
         }
     }
     timer_disable();
+    usb_teardown();
     disable_interrupts();
-
+    preemption_over = 1;
+    
     while (gBootFlag)
     {
         if (gBootFlag == BOOT_FLAG_RAW) {
@@ -226,7 +250,12 @@ __attribute__((noinline)) void pongo_entry_cached() {
         }
         gBootFlag--;
     }
+    
     xnu_loadrd();
+    if (sep_boot_hook)
+        sep_boot_hook();
+    
+    __asm__ volatile("dsb sy");
     screen_puts("Booting");
 }
 
@@ -237,16 +266,22 @@ __attribute__((noinline)) void pongo_entry_cached() {
 
 */
 volatile void jump_to_image_extended(uint64_t image, uint64_t args, uint64_t original_image);
+extern uint64_t gPongoSlide;
 
 void pongo_entry(uint64_t *kernel_args, void *entryp, void (*exit_to_el1_image)(void *boot_args, void *boot_entry_point))
 {
     gBootArgs = (boot_args*)kernel_args;
     gEntryPoint = entryp;
-    lowlevel_setup(gBootArgs->physBase & 0xFFFFFFFF, 0x1f000000);
-    rebase_pc(kCacheableView - 0x800000000);
+    lowlevel_setup(gBootArgs->physBase & 0xFFFFFFFF, gBootArgs->memSize);
+    rebase_pc(gPongoSlide);
+    extern void set_exception_stack_core0();
+    set_exception_stack_core0();
     pongo_entry_cached();
+    extern void lowlevel_set_identity(void);
+    lowlevel_set_identity();
+    rebase_pc(-gPongoSlide);
+    set_exception_stack_core0();
     gFramebuffer = (uint32_t*)gBootArgs->Video.v_baseAddr;
-    rebase_pc(0x800000000 - kCacheableView);
     lowlevel_cleanup();
     if(gBootFlag == BOOT_FLAG_RAW)
     {
@@ -258,6 +293,7 @@ void pongo_entry(uint64_t *kernel_args, void *entryp, void (*exit_to_el1_image)(
     }
     else
     {
+        tz_lockdown();
         xnu_boot();
     }
     exit_to_el1_image((void*)gBootArgs, gEntryPoint);
