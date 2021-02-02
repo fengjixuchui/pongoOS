@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2007 Apple Inc. All rights reserved.
+ * Copyright (c) 2000 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -57,14 +57,18 @@
  */
 
 /*
- *	File:	boolean.h
+ *	File:	kern_return.h
+ *	Author:	Avadis Tevanian, Jr., Michael Wayne Young
+ *	Date:	1985
  *
- *	Boolean type, for ARM.
+ *	Machine-dependent kernel return definitions.
  */
 
-#ifndef _MACH_ARM_BOOLEAN_H_
-#define _MACH_ARM_BOOLEAN_H_
+#ifndef _MACH_I386_KERN_RETURN_H_
+#define _MACH_I386_KERN_RETURN_H_
 
-typedef int             boolean_t;
+#ifndef ASSEMBLER
+typedef int             kern_return_t;
+#endif  /* ASSEMBLER */
 
-#endif  /* _MACH_ARM_BOOLEAN_H_ */
+#endif  /* _MACH_I386_KERN_RETURN_H_ */

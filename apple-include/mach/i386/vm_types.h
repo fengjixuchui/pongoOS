@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2007 Apple Inc. All rights reserved.
+ * Copyright (c) 2000-2016 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -61,17 +61,16 @@
  *	Author:	Avadis Tevanian, Jr.
  *	Date: 1985
  *
- *	Header file for VM data types.  ARM version.
+ *	Header file for VM data types.  I386 version.
  */
 
-#ifndef _MACH_ARM_VM_TYPES_H_
-#define _MACH_ARM_VM_TYPES_H_
+#ifndef _MACH_I386_VM_TYPES_H_
+#define _MACH_I386_VM_TYPES_H_
 
 #ifndef ASSEMBLER
 
-#include <arm/_types.h>
+#include <i386/_types.h>
 #include <stdint.h>
-#include <Availability.h>
 
 /*
  * natural_t and integer_t are Mach's legacy types for machine-
@@ -81,9 +80,9 @@
  *
  * They also had an implicit "same size as pointer" characteristic
  * to them (i.e. Mach's traditional types are very ILP32 or ILP64
- * centric).  We will likely support x86 ABIs that do not follow
- * either ofthese models (specifically LP64).  Therefore, we had to
- * make a choice between making these types scale with pointers or stay
+ * centric).  We support x86 ABIs that do not follow either of
+ * these models (specifically LP64).  Therefore, we had to make a
+ * choice between making these types scale with pointers or stay
  * tied to integers.  Because their use is predominantly tied to
  * to the size of an integer, we are keeping that association and
  * breaking free from pointer size guarantees.
@@ -99,23 +98,20 @@ typedef int                     integer_t;
  */
 #ifdef __LP64__
 typedef uintptr_t               vm_offset_t;
-typedef uintptr_t               vm_size_t;
-
-typedef uint64_t                mach_vm_address_t;
-typedef uint64_t                mach_vm_offset_t;
-typedef uint64_t                mach_vm_size_t;
-
-typedef uint64_t                vm_map_offset_t;
-typedef uint64_t                vm_map_address_t;
-typedef uint64_t                vm_map_size_t;
-#else
+#else   /* __LP64__ */
 typedef natural_t               vm_offset_t;
+#endif  /* __LP64__ */
+
 /*
  * A vm_size_t is the proper type for e.g.
  * expressing the difference between two
  * vm_offset_t entities.
  */
+#ifdef __LP64__
+typedef uintptr_t               vm_size_t;
+#else   /* __LP64__ */
 typedef natural_t               vm_size_t;
+#endif  /* __LP64__ */
 
 /*
  * This new type is independent of a particular vm map's
@@ -124,27 +120,15 @@ typedef natural_t               vm_size_t;
  * where the size of the map is not known - or we don't
  * want to have to distinguish.
  */
-#if defined(__IPHONE_OS_VERSION_MIN_REQUIRED) && (__IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_5_0)
-typedef uint32_t                mach_vm_address_t;
-typedef uint32_t                mach_vm_offset_t;
-typedef uint32_t                mach_vm_size_t;
-#else
 typedef uint64_t                mach_vm_address_t;
 typedef uint64_t                mach_vm_offset_t;
 typedef uint64_t                mach_vm_size_t;
-#endif
 
-typedef uint32_t                vm_map_offset_t;
-typedef uint32_t                vm_map_address_t;
-typedef uint32_t                vm_map_size_t;
-#endif /* __LP64__ */
+typedef uint64_t                vm_map_offset_t;
+typedef uint64_t                vm_map_address_t;
+typedef uint64_t                vm_map_size_t;
 
-
-typedef uint32_t                vm32_offset_t;
-typedef uint32_t                vm32_address_t;
-typedef uint32_t                vm32_size_t;
-
-typedef vm_offset_t             mach_port_context_t;
+typedef mach_vm_address_t       mach_port_context_t;
 
 
 #endif  /* ASSEMBLER */
@@ -154,4 +138,4 @@ typedef vm_offset_t             mach_port_context_t;
  */
 #define MACH_MSG_TYPE_INTEGER_T MACH_MSG_TYPE_INTEGER_32
 
-#endif  /* _MACH_ARM_VM_TYPES_H_ */
+#endif  /* _MACH_I386_VM_TYPES_H_ */

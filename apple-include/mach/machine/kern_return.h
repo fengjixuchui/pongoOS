@@ -26,15 +26,15 @@
  * @APPLE_OSREFERENCE_LICENSE_HEADER_END@
  */
 
-#ifndef _MACH_MACHINE_THREAD_STATUS_H_
-#define _MACH_MACHINE_THREAD_STATUS_H_
+#ifndef _MACH_MACHINE_KERN_RETURN_H_
+#define _MACH_MACHINE_KERN_RETURN_H_
 
 #if defined (__i386__) || defined(__x86_64__)
-#include "mach/i386/thread_status.h"
+#include "mach/i386/kern_return.h"
 #elif defined (__arm__) || defined (__arm64__)
-#include "mach/arm/thread_status.h"
+#include "mach/arm/kern_return.h"
 #else
 #error architecture not supported
 #endif
 
-#endif /* _MACH_MACHINE_THREAD_STATUS_H_ */
+#endif /* _MACH_MACHINE_KERN_RETURN_H_ */

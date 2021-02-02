@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2007 Apple Inc. All rights reserved.
+ * Copyright (c) 2017 Apple Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -26,15 +26,15 @@
  * @APPLE_OSREFERENCE_LICENSE_HEADER_END@
  */
 
-#ifndef _MACH_MACHINE_THREAD_STATUS_H_
-#define _MACH_MACHINE_THREAD_STATUS_H_
+#ifndef _MACH_MACHINE__STRUCTS_H_
+#define _MACH_MACHINE__STRUCTS_H_
 
 #if defined (__i386__) || defined(__x86_64__)
-#include "mach/i386/thread_status.h"
+#include "mach/i386/_structs.h"
 #elif defined (__arm__) || defined (__arm64__)
-#include "mach/arm/thread_status.h"
+#include "mach/arm/_structs.h"
 #else
 #error architecture not supported
 #endif
 
-#endif /* _MACH_MACHINE_THREAD_STATUS_H_ */
+#endif /* _MACH_MACHINE__STRUCTS_H_ */
